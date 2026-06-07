@@ -1,8 +1,11 @@
 import asyncio
+import logging
 
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+log = logging.getLogger(__name__)
 
 LONG_BREAK_MIN = 15
 TOTAL_ROUNDS = 4
@@ -89,6 +92,8 @@ class Pomodoro(commands.Cog):
                     )
         except asyncio.CancelledError:
             pass
+        except Exception:
+            log.exception("뽀모도로 _run 오류 (user=%s)", user.id)
         finally:
             self._sessions.pop(user.id, None)
 
