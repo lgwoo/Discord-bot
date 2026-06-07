@@ -34,7 +34,12 @@ class Greeting(commands.Cog):
         channel = self.get_channel()
         if not channel:
             return
-        msg = await ask_ai("아침이야. 건우한테 짧게 아침 인사 해줘. 오늘 하루 시작하는 느낌으로.")
+        msg = await ask_ai(
+            "아침이야. 건우한테 아침 인사 해줘. "
+            "오늘 하루 시작하는 느낌으로, 따뜻하게. "
+            "중간에 오늘 하루를 살아갈 힘이 되는 짧은 명언이나 글귀 하나 자연스럽게 녹여줘. "
+            "출처도 포함하고, 전체적으로 좀 길어도 괜찮아."
+        )
         await channel.send(msg)
 
     @tasks.loop(time=NIGHT_TIME)
