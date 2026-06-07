@@ -24,6 +24,8 @@ async def main():
     async with bot:
         await bot.load_extension("cogs.qa")
         await bot.load_extension("cogs.greeting")
+        await bot.load_extension("cogs.pomodoro")
+        await bot.load_extension("cogs.todo")
         await bot.start(os.environ["DISCORD_TOKEN"])
 
 
