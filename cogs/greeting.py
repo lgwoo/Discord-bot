@@ -35,13 +35,14 @@ class Greeting(commands.Cog):
         if not channel:
             return
         msg = await ask_ai(
-            "아침이야. 건우한테 아침 인사 해줘. "
+            "아침이야. 모두한테 아침 인사 해줘. "
             "오늘 하루 시작하는 느낌으로, 따뜻하게. "
             "중간에 오늘 하루를 살아갈 힘이 되는 짧은 명언이나 글귀 하나 자연스럽게 녹여줘. "
-            "출처도 포함하고, 전체적으로 좀 길어도 괜찮아.",
+            "출처도 포함하고, 전체적으로 좀 길어도 괜찮아. "
+            "마지막 인사는 '모두들'로 끝내줘.",
             channel_id=channel.id,
         )
-        await channel.send(msg)
+        await channel.send("@everyone\n" + msg)
 
     @tasks.loop(time=NIGHT_TIME)
     async def night_greeting(self):
@@ -49,12 +50,13 @@ class Greeting(commands.Cog):
         if not channel:
             return
         msg = await ask_ai(
-            "밤이야. 건우한테 잘자 인사 해줘. "
+            "밤이야. 모두한테 잘자 인사 해줘. "
             "하루 마무리하는 느낌으로, 마지막에 오늘 하루를 돌아볼 수 있는 명언이나 글귀 하나 붙여줘. "
-            "명언은 출처 포함해서, 짧은 설명도 살짝 덧붙여줘. 전체적으로 좀 길어도 괜찮아.",
+            "명언은 출처 포함해서, 짧은 설명도 살짝 덧붙여줘. 전체적으로 좀 길어도 괜찮아. "
+            "마지막 인사는 '모두들'로 끝내줘.",
             channel_id=channel.id,
         )
-        await channel.send(msg)
+        await channel.send("@everyone\n" + msg)
 
     @morning_greeting.before_loop
     @night_greeting.before_loop
