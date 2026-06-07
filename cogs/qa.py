@@ -1,5 +1,6 @@
 import os
 import re
+from collections import defaultdict, deque
 
 import discord
 from discord import app_commands
@@ -10,8 +11,12 @@ TIMELY_BASE_URL = "https://hello.timelygpt.co.kr/api/v2/chat/bridge/openai"
 MODEL = "anthropic/claude-haiku-4.5"
 MAX_TOKENS = 1024
 DISCORD_CHAR_LIMIT = 2000
+HISTORY_LIMIT = 10  # 채널당 최근 대화 유지 개수
 
 _PROMPT_FILE = os.path.join(os.path.dirname(__file__), "..", "system_prompt.txt")
+
+# 채널 ID → deque of {"role": ..., "content": ...}
+_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY_LIMIT * 2))
 
 
 def load_system_prompt() -> str:
@@ -31,16 +36,27 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-async def ask_ai(question: str) -> str:
+async def ask_ai(question: str, channel_id: int, username: str | None = None) -> str:
+    content = f"[{username}]: {question}" if username else question
+    history = _history[channel_id]
+
+    messages = [
+        {"role": "system", "content": load_system_prompt()},
+        *list(history),
+        {"role": "user", "content": content},
+    ]
+
     response = await get_client().chat.completions.create(
         model=MODEL,
         max_tokens=MAX_TOKENS,
-        messages=[
-            {"role": "system", "content": load_system_prompt()},
-            {"role": "user", "content": question},
-        ],
+        messages=messages,
     )
-    return response.choices[0].message.content
+    reply = response.choices[0].message.content
+
+    history.append({"role": "user", "content": content})
+    history.append({"role": "assistant", "content": reply})
+
+    return reply
 
 
 async def send_long(target, text: str):
@@ -77,7 +93,7 @@ class QA(commands.Cog):
 
         try:
             async with message.channel.typing():
-                reply = await ask_ai(question)
+                reply = await ask_ai(question, channel_id=message.channel.id, username=message.author.display_name)
             print(f"[qa] reply={reply[:100]!r}")
             if len(reply) <= DISCORD_CHAR_LIMIT:
                 await message.reply(reply)
@@ -93,7 +109,7 @@ class QA(commands.Cog):
     async def slash_ask(self, interaction: discord.Interaction, 질문내용: str):
         await interaction.response.defer()
         try:
-            reply = await ask_ai(질문내용)
+            reply = await ask_ai(질문내용, channel_id=interaction.channel_id, username=interaction.user.display_name)
             if len(reply) <= DISCORD_CHAR_LIMIT:
                 await interaction.followup.send(reply)
             else:
