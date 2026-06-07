@@ -51,7 +51,7 @@ async def ask_ai(question: str, channel_id: int, username: str | None = None) ->
         max_tokens=MAX_TOKENS,
         messages=messages,
     )
-    reply = response.choices[0].message.content
+    reply = " ".join(response.choices[0].message.content.split("\n")).strip()
 
     history.append({"role": "user", "content": content})
     history.append({"role": "assistant", "content": reply})
