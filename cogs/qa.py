@@ -50,14 +50,35 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-async def ask_ai(question: str, channel_id: int, username: str | None = None) -> str:
+async def attachment_to_data_uri(att: discord.Attachment) -> str | None:
+    if not att.content_type or not att.content_type.startswith("image/"):
+        return None
+    img_bytes = await att.read()
+    b64 = base64.b64encode(img_bytes).decode()
+    return f"data:{att.content_type};base64,{b64}"
+
+
+async def ask_ai(
+    question: str,
+    channel_id: int,
+    username: str | None = None,
+    image_data_uris: list[str] | None = None,
+) -> str:
     content = f"[{username}]: {question}" if username else question
     history = _history[channel_id]
+
+    if image_data_uris:
+        user_content = [
+            *[{"type": "image_url", "image_url": {"url": uri}} for uri in image_data_uris],
+            {"type": "text", "text": content},
+        ]
+    else:
+        user_content = content
 
     messages = [
         {"role": "system", "content": load_system_prompt()},
         *list(history),
-        {"role": "user", "content": content},
+        {"role": "user", "content": user_content},
     ]
 
     response = await get_client().chat.completions.create(
@@ -74,7 +95,6 @@ async def ask_ai(question: str, channel_id: int, username: str | None = None) ->
 
 
 def _extract_image(data) -> discord.File | str | None:
-    """Recursively search for image URL/base64 in response data."""
     if isinstance(data, str):
         if data.startswith("data:image"):
             header, b64data = data.split(",", 1)
@@ -98,10 +118,18 @@ def _extract_image(data) -> discord.File | str | None:
     return None
 
 
-async def generate_image(prompt: str) -> discord.File | str:
+async def generate_image(prompt: str, reference_b64: str | None = None) -> discord.File | str:
+    if reference_b64:
+        user_content = [
+            {"type": "image_url", "image_url": {"url": reference_b64}},
+            {"type": "text", "text": prompt},
+        ]
+    else:
+        user_content = prompt
+
     response = await get_client().chat.completions.create(
         model=IMAGE_MODEL,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": user_content}],
         extra_body={
             "modalities": ["image", "text"],
             "image_config": {"aspect_ratio": "16:9"},
@@ -111,7 +139,6 @@ async def generate_image(prompt: str) -> discord.File | str:
     raw = response.model_dump()
     print(f"[image] raw response={json.dumps(raw, ensure_ascii=False)[:2000]}")
 
-    # raw dict 사용 — SDK 파싱 객체는 비표준 필드(image 등) 누락 가능
     message_dict = raw["choices"][0]["message"]
     result = _extract_image(message_dict)
     if result:
@@ -152,13 +179,24 @@ class QA(commands.Cog):
 
         question = re.sub(r"<[@&!]\d+>", "", message.content).strip()
         print(f"[qa] question={question!r}")
-        if not question:
+        if not question and not message.attachments:
             await message.reply("질문을 입력해주세요!")
             return
 
         try:
             async with message.channel.typing():
-                reply = await ask_ai(question, channel_id=message.channel.id, username=resolve_name(message.author.name))
+                image_data_uris = []
+                for att in message.attachments:
+                    uri = await attachment_to_data_uri(att)
+                    if uri:
+                        image_data_uris.append(uri)
+
+                reply = await ask_ai(
+                    question or "이 이미지 분석해줘",
+                    channel_id=message.channel.id,
+                    username=resolve_name(message.author.name),
+                    image_data_uris=image_data_uris or None,
+                )
             print(f"[qa] reply={reply[:100]!r}")
             if len(reply) <= DISCORD_CHAR_LIMIT:
                 await message.reply(reply)
@@ -170,11 +208,20 @@ class QA(commands.Cog):
             await message.reply(f"오류 발생: {e}")
 
     @app_commands.command(name="이미지", description="AI로 이미지를 생성합니다")
-    @app_commands.describe(프롬프트="생성할 이미지 설명")
-    async def slash_image(self, interaction: discord.Interaction, 프롬프트: str):
+    @app_commands.describe(프롬프트="생성할 이미지 설명", 참고이미지="참고할 이미지 첨부 (선택)")
+    async def slash_image(
+        self,
+        interaction: discord.Interaction,
+        프롬프트: str,
+        참고이미지: discord.Attachment | None = None,
+    ):
         await interaction.response.defer()
         try:
-            result = await generate_image(프롬프트)
+            reference_b64 = None
+            if 참고이미지:
+                reference_b64 = await attachment_to_data_uri(참고이미지)
+
+            result = await generate_image(프롬프트, reference_b64=reference_b64)
             if isinstance(result, discord.File):
                 await interaction.followup.send(file=result)
             else:
