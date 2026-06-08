@@ -99,30 +99,24 @@ def _extract_image(data) -> discord.File | str | None:
 
 
 async def generate_image(prompt: str) -> discord.File | str:
-    response = await get_client().chat.completions.create(
+    # OpenAI 표준 이미지 생성 API 시도
+    response = await get_client().images.generate(
         model=IMAGE_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        extra_body={
-            "modalities": ["image", "text"],
-            "image_config": {"aspect_ratio": "1:1"},
-        },
+        prompt=prompt,
+        n=1,
+        response_format="url",
     )
 
     raw = response.model_dump()
     print(f"[image] raw response={json.dumps(raw, ensure_ascii=False)[:500]}")
 
-    # tool_calls에서 이미지 찾기
-    message = response.choices[0].message
-    if hasattr(message, "tool_calls") and message.tool_calls:
-        for tc in message.tool_calls:
-            result = _extract_image(tc.model_dump())
-            if result:
-                return result
-
-    # content에서 이미지 찾기
-    result = _extract_image(raw)
-    if result:
-        return result
+    if response.data:
+        item = response.data[0]
+        if item.url:
+            return item.url
+        if item.b64_json:
+            img_bytes = base64.b64decode(item.b64_json)
+            return discord.File(io.BytesIO(img_bytes), filename="image.png")
 
     raise ValueError(f"이미지를 찾을 수 없음. 응답 확인: {json.dumps(raw, ensure_ascii=False)[:300]}")
 
