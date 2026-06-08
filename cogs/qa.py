@@ -82,7 +82,7 @@ def _extract_image(data) -> discord.File | str | None:
             ext = mime.split("/")[-1]
             img_bytes = base64.b64decode(b64data)
             return discord.File(io.BytesIO(img_bytes), filename=f"image.{ext}")
-        if data.startswith("http") and any(ext in data for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]):
+        if data.startswith("http"):
             return data
     if isinstance(data, list):
         for item in data:
@@ -90,7 +90,7 @@ def _extract_image(data) -> discord.File | str | None:
             if result:
                 return result
     if isinstance(data, dict):
-        for key in ("url", "image_url", "data", "content"):
+        for key in ("images", "image", "image_url", "url", "data", "content"):
             if key in data:
                 result = _extract_image(data[key])
                 if result:
@@ -109,10 +109,11 @@ async def generate_image(prompt: str) -> discord.File | str:
     )
 
     raw = response.model_dump()
-    print(f"[image] raw response={json.dumps(raw, ensure_ascii=False)[:500]}")
+    print(f"[image] raw response={json.dumps(raw, ensure_ascii=False)[:2000]}")
 
-    content = response.choices[0].message.content
-    result = _extract_image(content)
+    # raw dict 사용 — SDK 파싱 객체는 비표준 필드(image 등) 누락 가능
+    message_dict = raw["choices"][0]["message"]
+    result = _extract_image(message_dict)
     if result:
         return result
 
@@ -120,7 +121,7 @@ async def generate_image(prompt: str) -> discord.File | str:
     if result:
         return result
 
-    raise ValueError(f"이미지를 찾을 수 없음. 응답: {json.dumps(raw, ensure_ascii=False)[:300]}")
+    raise ValueError(f"이미지를 찾을 수 없음. 응답: {json.dumps(raw, ensure_ascii=False)[:500]}")
 
 
 async def send_long(target, text: str):
