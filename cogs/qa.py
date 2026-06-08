@@ -129,7 +129,10 @@ async def generate_image(prompt: str, reference_b64: str | None = None) -> disco
 
     response = await get_client().chat.completions.create(
         model=IMAGE_MODEL,
-        messages=[{"role": "user", "content": user_content}],
+        messages=[
+            {"role": "system", "content": "You are an image generation assistant. Always generate an image based on the user's description. Never respond with text only."},
+            {"role": "user", "content": user_content},
+        ],
         extra_body={
             "modalities": ["image", "text"],
             "image_config": {"aspect_ratio": "16:9"},
