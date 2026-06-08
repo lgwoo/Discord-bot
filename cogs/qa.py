@@ -73,49 +73,58 @@ async def ask_ai(question: str, channel_id: int, username: str | None = None) ->
     return reply
 
 
-async def generate_image(prompt: str) -> discord.File | str:
-    """Returns discord.File if image data received, or str URL if URL received."""
-    response = await get_client().chat.completions.create(
-        model=IMAGE_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        extra_body={"modalities": ["image", "text"]},
-    )
-    print(f"[image] raw response={response!r}")
-
-    message = response.choices[0].message
-    content = message.content
-
-    # content가 리스트인 경우 (멀티모달 응답)
-    if isinstance(content, list):
-        for part in content:
-            if isinstance(part, dict):
-                if part.get("type") == "image_url":
-                    url = part["image_url"]["url"]
-                    if url.startswith("data:"):
-                        # base64 data URL
-                        header, b64data = url.split(",", 1)
-                        mime = header.split(";")[0].split(":")[1]
-                        ext = mime.split("/")[-1]
-                        img_bytes = base64.b64decode(b64data)
-                        return discord.File(io.BytesIO(img_bytes), filename=f"image.{ext}")
-                    return url
-                elif part.get("type") == "text":
-                    continue
-
-    # content가 문자열인 경우
-    if isinstance(content, str):
-        # base64 data URL 형태
-        if content.startswith("data:"):
-            header, b64data = content.split(",", 1)
+def _extract_image(data) -> discord.File | str | None:
+    """Recursively search for image URL/base64 in response data."""
+    if isinstance(data, str):
+        if data.startswith("data:image"):
+            header, b64data = data.split(",", 1)
             mime = header.split(";")[0].split(":")[1]
             ext = mime.split("/")[-1]
             img_bytes = base64.b64decode(b64data)
             return discord.File(io.BytesIO(img_bytes), filename=f"image.{ext}")
-        # 일반 URL
-        if content.startswith("http"):
-            return content
+        if data.startswith("http") and any(ext in data for ext in [".png", ".jpg", ".jpeg", ".webp", ".gif"]):
+            return data
+    if isinstance(data, list):
+        for item in data:
+            result = _extract_image(item)
+            if result:
+                return result
+    if isinstance(data, dict):
+        for key in ("url", "image_url", "data", "content"):
+            if key in data:
+                result = _extract_image(data[key])
+                if result:
+                    return result
+    return None
 
-    raise ValueError(f"이미지 URL을 응답에서 찾을 수 없음. 원본: {content!r}")
+
+async def generate_image(prompt: str) -> discord.File | str:
+    response = await get_client().chat.completions.create(
+        model=IMAGE_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        extra_body={
+            "modalities": ["image", "text"],
+            "image_config": {"aspect_ratio": "1:1"},
+        },
+    )
+
+    raw = response.model_dump()
+    print(f"[image] raw response={json.dumps(raw, ensure_ascii=False)[:500]}")
+
+    # tool_calls에서 이미지 찾기
+    message = response.choices[0].message
+    if hasattr(message, "tool_calls") and message.tool_calls:
+        for tc in message.tool_calls:
+            result = _extract_image(tc.model_dump())
+            if result:
+                return result
+
+    # content에서 이미지 찾기
+    result = _extract_image(raw)
+    if result:
+        return result
+
+    raise ValueError(f"이미지를 찾을 수 없음. 응답 확인: {json.dumps(raw, ensure_ascii=False)[:300]}")
 
 
 async def send_long(target, text: str):
